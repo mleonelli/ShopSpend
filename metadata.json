@@ -1,0 +1,6 @@
+{
+  "name": "ShopSpend",
+  "description": "Smart shopping budget tracker with voice item entry, live spending threshold notifications, instant price edits, and ad-supported / premium mode.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

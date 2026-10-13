@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:translateX="0"
+        android:translateY="0">
+        <!-- Shopping Cart Basket -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M27,33h8.5l4.5,22h29l4.5,-17h-36"
+            android:strokeWidth="3.2"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <!-- Cart grid / items -->
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M44,40h26 M45,47h23"
+            android:strokeWidth="2"
+            android:strokeColor="#CCFFFFFF"
+            android:strokeLineCap="round" />
+        <!-- Left Wheel -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M43,67m-4,0a4,4 0 1,0 8,0a4,4 0 1,0 -8,0" />
+        <!-- Right Wheel -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M67,67m-4,0a4,4 0 1,0 8,0a4,4 0 1,0 -8,0" />
+        <!-- Price Tag / Coin badge on top-right -->
+        <path
+            android:fillColor="#FBBF24"
+            android:pathData="M63,28m-11,0a11,11 0 1,0 22,0a11,11 0 1,0 -22,0" />
+        <path
+            android:fillColor="#78350F"
+            android:pathData="M63,22.5c0.6,0 1.2,0.1 1.7,0.3l-0.5,1.7c-0.3,-0.1 -0.8,-0.2 -1.2,-0.2c-1.3,0 -2,0.6 -2,1.4c0,0.8 0.6,1.2 1.8,1.7c1.7,0.6 2.6,1.5 2.6,3c0,1.8 -1.4,3.1 -3.4,3.1c-0.8,0 -1.5,-0.1 -2.1,-0.4l0.5,-1.8c0.5,0.2 1.1,0.4 1.7,0.4c1.3,0 2,-0.7 2,-1.5c0,-0.8 -0.6,-1.3 -2,-1.8c-1.6,-0.6 -2.4,-1.5 -2.4,-2.8c0,-1.7 1.3,-2.9 3.3,-2.9z" />
+        <path
+            android:fillColor="#78350F"
+            android:pathData="M62.2,21h1.6v2.2h-1.6z M62.2,32.3h1.6v2.2h-1.6z" />
+    </group>
+</vector>

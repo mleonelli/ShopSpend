@@ -28,7 +28,7 @@ class ExampleUnitTest {
         val parsed = VoiceParser.parse("3 mele a 4.99")
         assertNotNull(parsed)
         assertEquals(3, parsed!!.quantity)
-        assertEquals("mele", parsed.name)
+        assertEquals("Mele", parsed.name)
         assertEquals(4.99, parsed.price, 0.001)
     }
 

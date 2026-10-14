@@ -135,6 +135,17 @@ class ShoppingViewModel(
         viewModelScope.launch {
             val session = currentSession.value
             val targetSessionId = if (session != null) {
+                // If trip is closed, don't add
+                if (session.isCompleted) return@launch
+                // If item has price > 0.0, check if an unpriced item with same name exists in session
+                val currentItems = items.value
+                val existingUnpriced = currentItems.find {
+                    it.name.equals(name.trim(), ignoreCase = true) && it.price <= 0.0
+                }
+                if (existingUnpriced != null && price > 0.0) {
+                    repository.updateItem(existingUnpriced.copy(price = price, quantity = quantity.coerceAtLeast(existingUnpriced.quantity)))
+                    return@launch
+                }
                 session.id
             } else {
                 val newId = repository.createSession(
@@ -149,14 +160,58 @@ class ShoppingViewModel(
         }
     }
 
+    fun addItems(itemList: List<Triple<String, Double, Int>>) {
+        viewModelScope.launch {
+            val session = currentSession.value
+            val targetSessionId = if (session != null) {
+                if (session.isCompleted) return@launch
+                session.id
+            } else {
+                val newId = repository.createSession(
+                    title = "Shopping List",
+                    threshold = 0.0,
+                    currencySymbol = preferenceManager.currency.value,
+                    isShoppingList = true
+                )
+                _selectedSessionId.value = newId
+                newId
+            }
+            val currentItems = items.value
+
+            for ((name, price, qty) in itemList) {
+                if (name.isBlank()) continue
+                val existingUnpriced = currentItems.find {
+                    it.name.equals(name.trim(), ignoreCase = true) && it.price <= 0.0
+                }
+                if (existingUnpriced != null && price > 0.0) {
+                    repository.updateItem(existingUnpriced.copy(price = price, quantity = qty.coerceAtLeast(existingUnpriced.quantity)))
+                } else {
+                    repository.addItem(targetSessionId, name, price, qty)
+                }
+            }
+        }
+    }
+
+    fun setItemPrice(item: ShoppingItem, newPrice: Double) {
+        viewModelScope.launch {
+            val session = currentSession.value
+            if (session?.isCompleted == true) return@launch
+            repository.updateItem(item.copy(price = newPrice.coerceAtLeast(0.0)))
+        }
+    }
+
     fun updateItem(item: ShoppingItem) {
         viewModelScope.launch {
+            val session = currentSession.value
+            if (session?.isCompleted == true) return@launch
             repository.updateItem(item)
         }
     }
 
     fun updateQuantity(item: ShoppingItem, newQuantity: Int) {
         viewModelScope.launch {
+            val session = currentSession.value
+            if (session?.isCompleted == true) return@launch
             if (newQuantity <= 0) {
                 repository.deleteItem(item)
             } else {
@@ -167,24 +222,42 @@ class ShoppingViewModel(
 
     fun deleteItem(item: ShoppingItem) {
         viewModelScope.launch {
+            val session = currentSession.value
+            if (session?.isCompleted == true) return@launch
             repository.deleteItem(item)
         }
     }
 
     fun updateThreshold(newThreshold: Double) {
         viewModelScope.launch {
-            currentSession.value?.let { session ->
-                repository.updateSession(session.copy(threshold = newThreshold.coerceAtLeast(0.0)))
+            val session = currentSession.value
+            if (session?.isCompleted == true) return@launch
+            session?.let {
+                repository.updateSession(it.copy(threshold = newThreshold.coerceAtLeast(0.0)))
                 // Reset alert status for new threshold
                 lastAlertedTotal = 0.0
             }
         }
     }
 
-    fun createNewSession(title: String, threshold: Double, currency: String) {
+    fun toggleCurrentSessionStatus() {
+        viewModelScope.launch {
+            currentSession.value?.let { session ->
+                repository.toggleSessionCompletion(session)
+            }
+        }
+    }
+
+    fun toggleSessionStatus(session: ShoppingSession) {
+        viewModelScope.launch {
+            repository.toggleSessionCompletion(session)
+        }
+    }
+
+    fun createNewSession(title: String, threshold: Double, currency: String, isShoppingList: Boolean = false) {
         viewModelScope.launch {
             preferenceManager.setCurrency(currency)
-            val newId = repository.createSession(title, threshold, currency)
+            val newId = repository.createSession(title, threshold, currency, isShoppingList)
             _selectedSessionId.value = newId
             lastAlertedSessionId = null
             lastAlertedTotal = 0.0

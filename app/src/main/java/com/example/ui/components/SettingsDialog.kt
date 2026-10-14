@@ -1,5 +1,11 @@
 package com.example.ui.components
 
+import android.content.Intent
+import android.content.res.Configuration
+import android.net.Uri
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,16 +24,22 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -64,24 +76,58 @@ fun SettingsDialog(
     onCurrencySelected: (String) -> Unit,
     onVibrationToggled: (Boolean) -> Unit
 ) {
-    var selectedLang by remember { mutableStateOf(currentLanguage) }
-    var selectedCurr by remember { mutableStateOf(currentCurrency) }
-    var vibrationActive by remember { mutableStateOf(isVibrationEnabled) }
+    var selectedLang by remember(currentLanguage) { mutableStateOf(currentLanguage) }
+    var selectedCurr by remember(currentCurrency) { mutableStateOf(currentCurrency) }
+    var vibrationActive by remember(isVibrationEnabled) { mutableStateOf(isVibrationEnabled) }
+    var isLangDropdownExpanded by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    val targetLocale = remember(selectedLang) {
+        when (selectedLang) {
+            PreferenceManager.LANG_IT -> Locale.ITALIAN
+            PreferenceManager.LANG_EN -> Locale.ENGLISH
+            else -> {
+                val sysLang = Locale.getDefault().language.lowercase(Locale.ROOT)
+                if (sysLang.startsWith("it")) Locale.ITALIAN else Locale.ENGLISH
+            }
+        }
+    }
+
+    val localizedConfiguration = remember(targetLocale, context) {
+        Configuration(context.resources.configuration).apply {
+            setLocale(targetLocale)
+        }
+    }
+
+    val localizedContext = remember(targetLocale, context) {
+        val config = Configuration(context.resources.configuration).apply {
+            setLocale(targetLocale)
+        }
+        context.createConfigurationContext(config)
+    }
 
     val systemLocale = Locale.getDefault()
     val isSystemItalian = systemLocale.language.lowercase(Locale.ROOT).startsWith("it")
     val systemDisplay = if (isSystemItalian) "Auto (Italiano)" else "Auto (English)"
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("settings_dialog"),
-        title = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+    CompositionLocalProvider(
+        LocalConfiguration provides localizedConfiguration,
+        LocalContext provides localizedContext
+    ) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("settings_dialog"),
+            title = {
+                CompositionLocalProvider(
+                    LocalConfiguration provides localizedConfiguration,
+                    LocalContext provides localizedContext
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.primaryContainer,
@@ -100,15 +146,20 @@ fun SettingsDialog(
                     text = stringResource(R.string.settings_title),
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                 )
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
+                    }
+                }
+            },
+            text = {
+                CompositionLocalProvider(
+                    LocalConfiguration provides localizedConfiguration,
+                    LocalContext provides localizedContext
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
                 // --- Language Section ---
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
@@ -137,61 +188,120 @@ fun SettingsDialog(
                     // Options: System, English, Italiano
                     val languageOptions = listOf(
                         Triple(PreferenceManager.LANG_SYSTEM, stringResource(R.string.language_system), systemDisplay),
-                        Triple(PreferenceManager.LANG_EN, stringResource(R.string.language_en), "English (US / UK)"),
-                        Triple(PreferenceManager.LANG_IT, stringResource(R.string.language_it), "Italiano (Italia)")
+                        Triple(PreferenceManager.LANG_IT, stringResource(R.string.language_it), "Italiano (Italia)"),
+                        Triple(PreferenceManager.LANG_EN, stringResource(R.string.language_en), "English (US / UK)")
                     )
 
-                    languageOptions.forEach { (code, title, subtitle) ->
-                        val isSelected = selectedLang == code
+                    val selectedOption = languageOptions.find { it.first == selectedLang } ?: languageOptions.first()
+
+                    Box(modifier = Modifier.fillMaxWidth()) {
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
-                                .clickable {
-                                    selectedLang = code
-                                    onLanguageSelected(code)
-                                }
-                                .testTag("language_option_$code"),
+                                .clickable { isLangDropdownExpanded = true }
+                                .testTag("language_dropdown_trigger"),
                             shape = RoundedCornerShape(10.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected) {
-                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                                }
+                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
                             ),
-                            border = if (isSelected) {
-                                androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
-                            } else null
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.5.dp,
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                            )
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = title,
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                        ),
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = subtitle,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.Default.Language,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Column {
+                                        Text(
+                                            text = selectedOption.second,
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            text = selectedOption.third,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
 
-                                RadioButton(
-                                    selected = isSelected,
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = stringResource(R.string.language),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+
+                        DropdownMenu(
+                            expanded = isLangDropdownExpanded,
+                            onDismissRequest = { isLangDropdownExpanded = false },
+                            modifier = Modifier
+                                .fillMaxWidth(0.78f)
+                                .testTag("language_dropdown_menu")
+                        ) {
+                            languageOptions.forEach { (code, title, subtitle) ->
+                                val isSelected = selectedLang == code
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(
+                                                text = title,
+                                                style = MaterialTheme.typography.bodyMedium.copy(
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                                ),
+                                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = subtitle,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    },
+                                    trailingIcon = if (isSelected) {
+                                        {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    } else null,
                                     onClick = {
                                         selectedLang = code
+                                        isLangDropdownExpanded = false
                                         onLanguageSelected(code)
-                                    }
+                                    },
+                                    modifier = Modifier.testTag("language_option_$code")
                                 )
                             }
                         }
@@ -312,9 +422,182 @@ fun SettingsDialog(
                         modifier = Modifier.testTag("vibration_switch")
                     )
                 }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+
+                // --- About & Share Section ---
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val context = LocalContext.current
+                    val playStoreUrl = "https://play.google.com/store/apps/details?id=com.mauroleonelli.shopspend"
+                    val websiteUrl = "https://mauroleonelli.com"
+
+                    Text(
+                        text = stringResource(R.string.about_section),
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    // Share App Card
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable {
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_SUBJECT, context.getString(R.string.share_app_subject))
+                                    putExtra(
+                                        Intent.EXTRA_TEXT,
+                                        context.getString(R.string.share_app_text, playStoreUrl)
+                                    )
+                                }
+                                context.startActivity(
+                                    Intent.createChooser(shareIntent, context.getString(R.string.share_app))
+                                )
+                            }
+                            .testTag("share_app_button"),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.Share,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+
+                                Column {
+                                    Text(
+                                        text = stringResource(R.string.share_app),
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.share_app_desc),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    // Developed By Link Card
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable {
+                                val websiteIntent = Intent(Intent.ACTION_VIEW, Uri.parse(websiteUrl))
+                                context.startActivity(websiteIntent)
+                            }
+                            .testTag("developer_website_button"),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.Public,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+
+                                Column {
+                                    Text(
+                                        text = "${stringResource(R.string.developed_by)} ${stringResource(R.string.developer_name)}",
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.developer_website),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+
+                            Icon(
+                                imageVector = Icons.Default.OpenInNew,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    // App Version Footer
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = stringResource(R.string.app_version_info),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+                }
             }
-        },
-        confirmButton = {
+        }
+    },
+    confirmButton = {
+        CompositionLocalProvider(
+            LocalConfiguration provides localizedConfiguration,
+            LocalContext provides localizedContext
+        ) {
             Button(
                 onClick = onDismiss,
                 modifier = Modifier.testTag("settings_done_button")
@@ -322,5 +605,7 @@ fun SettingsDialog(
                 Text(stringResource(R.string.done))
             }
         }
-    )
+    }
+)
+}
 }

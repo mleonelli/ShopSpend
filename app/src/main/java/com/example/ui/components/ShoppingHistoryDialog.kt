@@ -15,8 +15,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -49,6 +53,7 @@ fun ShoppingHistoryDialog(
     onDismiss: () -> Unit,
     onSelectSession: (Long) -> Unit,
     onDeleteSession: (Long) -> Unit,
+    onToggleSessionStatus: (ShoppingSession) -> Unit,
     onNewShoppingClick: () -> Unit
 ) {
     AlertDialog(
@@ -123,14 +128,31 @@ fun ShoppingHistoryDialog(
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
                                             Text(
                                                 text = session.title,
                                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                                                 color = MaterialTheme.colorScheme.onSurface
                                             )
-                                            if (isCurrent) {
-                                                Spacer(modifier = Modifier.width(6.dp))
+                                            if (session.isCompleted) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = MaterialTheme.colorScheme.errorContainer
+                                                ) {
+                                                    Text(
+                                                        text = stringResource(R.string.trip_status_closed),
+                                                        style = MaterialTheme.typography.labelSmall.copy(
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.onErrorContainer
+                                                        ),
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                    )
+                                                }
+                                            } else if (isCurrent) {
                                                 Surface(
                                                     shape = RoundedCornerShape(4.dp),
                                                     color = MaterialTheme.colorScheme.primary
@@ -141,6 +163,22 @@ fun ShoppingHistoryDialog(
                                                             fontSize = 9.sp,
                                                             fontWeight = FontWeight.Bold,
                                                             color = MaterialTheme.colorScheme.onPrimary
+                                                        ),
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                    )
+                                                }
+                                            }
+                                            if (session.isShoppingList) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = MaterialTheme.colorScheme.secondaryContainer
+                                                ) {
+                                                    Text(
+                                                        text = stringResource(R.string.shopping_list_badge),
+                                                        style = MaterialTheme.typography.labelSmall.copy(
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.onSecondaryContainer
                                                         ),
                                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                                     )
@@ -165,9 +203,26 @@ fun ShoppingHistoryDialog(
                                     }
 
                                     Row(verticalAlignment = Alignment.CenterVertically) {
+                                        // Toggle Close / Reopen
+                                        IconButton(
+                                            onClick = { onToggleSessionStatus(session) },
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .testTag("toggle_session_status_${session.id}")
+                                        ) {
+                                            Icon(
+                                                imageVector = if (session.isCompleted) Icons.Default.LockOpen else Icons.Default.Lock,
+                                                contentDescription = if (session.isCompleted) stringResource(R.string.reopen_trip_action) else stringResource(R.string.close_trip_action),
+                                                tint = if (session.isCompleted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+
                                         IconButton(
                                             onClick = { onDeleteSession(session.id) },
-                                            modifier = Modifier.size(32.dp)
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .testTag("delete_session_${session.id}")
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.DeleteOutline,

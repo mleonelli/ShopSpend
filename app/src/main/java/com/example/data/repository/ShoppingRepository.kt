@@ -19,14 +19,26 @@ class ShoppingRepository(private val dao: ShoppingDao) {
     suspend fun createSession(
         title: String,
         threshold: Double,
-        currencySymbol: String = "$"
+        currencySymbol: String = "$",
+        isShoppingList: Boolean = false
     ): Long {
         val session = ShoppingSession(
             title = title.ifBlank { "Shopping Trip" },
             threshold = threshold.coerceAtLeast(0.0),
-            currencySymbol = currencySymbol
+            currencySymbol = currencySymbol,
+            isShoppingList = isShoppingList
         )
         return dao.insertSession(session)
+    }
+
+    suspend fun toggleSessionCompletion(session: ShoppingSession): Boolean {
+        val newStatus = !session.isCompleted
+        val updated = session.copy(
+            isCompleted = newStatus,
+            completedAt = if (newStatus) System.currentTimeMillis() else null
+        )
+        dao.updateSession(updated)
+        return newStatus
     }
 
     suspend fun updateSession(session: ShoppingSession) = dao.updateSession(session)

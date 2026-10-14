@@ -11,5 +11,6 @@ data class ShoppingSession(
     val currencySymbol: String = "$",
     val createdAt: Long = System.currentTimeMillis(),
     val isCompleted: Boolean = false,
-    val completedAt: Long? = null
+    val completedAt: Long? = null,
+    val isShoppingList: Boolean = false
 )

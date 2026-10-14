@@ -9,13 +9,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -35,6 +39,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.R
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -43,10 +48,11 @@ import java.util.Locale
 @Composable
 fun NewShoppingDialog(
     onDismiss: () -> Unit,
-    onCreate: (title: String, threshold: Double, currency: String) -> Unit
+    onCreate: (title: String, threshold: Double, currency: String, isShoppingList: Boolean) -> Unit
 ) {
+    var isShoppingListMode by remember { mutableStateOf(false) }
     val dateStr = SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()).format(Date())
-    val defaultTitlePrefix = stringResource(R.string.shopping_trip)
+    val defaultTitlePrefix = if (isShoppingListMode) stringResource(R.string.mode_shopping_list) else stringResource(R.string.shopping_trip)
     val defaultTitle = "$defaultTitlePrefix - $dateStr"
     var title by remember { mutableStateOf("") }
     var thresholdStr by remember { mutableStateOf("50.00") }
@@ -60,13 +66,13 @@ fun NewShoppingDialog(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = Icons.Default.ShoppingCart,
+                    imageVector = if (isShoppingListMode) Icons.Default.Checklist else Icons.Default.ShoppingCart,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(end = 8.dp)
                 )
                 Text(
-                    text = stringResource(R.string.new_shopping_trip),
+                    text = if (isShoppingListMode) stringResource(R.string.mode_shopping_list) else stringResource(R.string.new_shopping_trip),
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                 )
             }
@@ -76,6 +82,94 @@ fun NewShoppingDialog(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+                // Mode Selector: Live Trip vs Shopping List
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = stringResource(R.string.trip_mode_title),
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Shopping Trip Card
+                        Card(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { isShoppingListMode = false }
+                                .testTag("mode_shopping_trip_card"),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (!isShoppingListMode) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            ),
+                            border = if (!isShoppingListMode) androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(10.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ShoppingCart,
+                                    contentDescription = null,
+                                    tint = if (!isShoppingListMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = stringResource(R.string.mode_shopping_trip),
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = if (!isShoppingListMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+
+                        // Shopping List Card
+                        Card(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    isShoppingListMode = true
+                                    thresholdStr = "0.00"
+                                }
+                                .testTag("mode_shopping_list_card"),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isShoppingListMode) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            ),
+                            border = if (isShoppingListMode) androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.secondary) else null
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(10.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Checklist,
+                                    contentDescription = null,
+                                    tint = if (isShoppingListMode) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = stringResource(R.string.mode_shopping_list),
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = if (isShoppingListMode) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        text = if (isShoppingListMode) stringResource(R.string.mode_shopping_list_desc)
+                        else stringResource(R.string.mode_shopping_trip_desc),
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
@@ -174,13 +268,16 @@ fun NewShoppingDialog(
                 onClick = {
                     val finalTitle = title.ifBlank { defaultTitle }
                     val threshold = thresholdStr.toDoubleOrNull() ?: 0.0
-                    onCreate(finalTitle, threshold, currency)
+                    onCreate(finalTitle, threshold, currency, isShoppingListMode)
                     onDismiss()
                 },
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.testTag("confirm_create_shopping_button")
             ) {
-                Text(stringResource(R.string.start_shopping))
+                Text(
+                    if (isShoppingListMode) stringResource(R.string.create_list_button)
+                    else stringResource(R.string.start_shopping)
+                )
             }
         },
         dismissButton = {

@@ -41,7 +41,8 @@ import com.example.R
 fun ManualAddItemDialog(
     currencySymbol: String,
     onDismiss: () -> Unit,
-    onConfirm: (name: String, price: Double, quantity: Int) -> Unit
+    onConfirm: (name: String, price: Double, quantity: Int) -> Unit,
+    onMultipleConfirm: ((List<Triple<String, Double, Int>>) -> Unit)? = null
 ) {
     var name by remember { mutableStateOf("") }
     var priceStr by remember { mutableStateOf("") }
@@ -122,18 +123,26 @@ fun ManualAddItemDialog(
             }
         },
         confirmButton = {
+            val rawItems = name.split(Regex("[,;\\n]+")).map { it.trim() }.filter { it.isNotBlank() }
             Button(
                 onClick = {
                     val finalPrice = priceStr.toDoubleOrNull() ?: 0.0
-                    val finalName = name.ifBlank { "Item" }
-                    onConfirm(finalName, finalPrice, quantity)
+                    if (rawItems.size > 1 && onMultipleConfirm != null) {
+                        onMultipleConfirm(rawItems.map { Triple(it, finalPrice, quantity) })
+                    } else {
+                        val finalName = name.ifBlank { "Item" }
+                        onConfirm(finalName, finalPrice, quantity)
+                    }
                     onDismiss()
                 },
                 enabled = name.isNotBlank() || priceStr.isNotBlank(),
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.testTag("confirm_manual_item_button")
             ) {
-                Text(stringResource(R.string.add_item))
+                Text(
+                    if (rawItems.size > 1) "${stringResource(R.string.add_item)} (${rawItems.size})"
+                    else stringResource(R.string.add_item)
+                )
             }
         },
         dismissButton = {

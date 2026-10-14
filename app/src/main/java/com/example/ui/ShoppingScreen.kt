@@ -25,7 +25,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddShoppingCart
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.ShoppingBag
@@ -51,6 +54,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -110,9 +114,12 @@ fun ShoppingScreen(
     var showHistoryDialog by remember { mutableStateOf(false) }
     var showAdjustThresholdDialog by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<ShoppingItem?>(null) }
+    var voicePriceTargetItem by remember { mutableStateOf<ShoppingItem?>(null) }
 
     val currency = currentSession?.currencySymbol ?: currencyPref
     val threshold = currentSession?.threshold ?: 0.0
+    val isTripClosed = currentSession?.isCompleted == true
+    val isShoppingList = currentSession?.isShoppingList == true
 
     // Dynamic locale context for live language switching
     val context = LocalContext.current
@@ -142,20 +149,63 @@ fun ShoppingScreen(
         config
     }
 
+    val localizedContext = remember(targetLocale, context) {
+        val config = Configuration(context.resources.configuration)
+        config.setLocale(targetLocale)
+        context.createConfigurationContext(config)
+    }
+
     CompositionLocalProvider(
-        LocalConfiguration provides localizedConfiguration
+        LocalConfiguration provides localizedConfiguration,
+        LocalContext provides localizedContext
     ) {
         Scaffold(
             topBar = {
                 CenterAlignedTopAppBar(
                     title = {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = currentSession?.title ?: stringResource(R.string.app_name),
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = currentSession?.title ?: stringResource(R.string.app_name),
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (isTripClosed) {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = MaterialTheme.colorScheme.errorContainer
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.trip_status_closed),
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onErrorContainer
+                                            ),
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                } else if (isShoppingList) {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = MaterialTheme.colorScheme.secondaryContainer
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.shopping_list_badge),
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                            ),
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+                            }
                             Text(
                                 text = if (threshold > 0.0) "${stringResource(R.string.budget)}: $currency${String.format(Locale.US, "%.2f", threshold)}" else stringResource(R.string.no_limit),
                                 style = MaterialTheme.typography.labelSmall,
@@ -176,6 +226,18 @@ fun ShoppingScreen(
                         }
                     },
                     actions = {
+                        if (currentSession != null) {
+                            IconButton(
+                                onClick = { viewModel.toggleCurrentSessionStatus() },
+                                modifier = Modifier.testTag("toggle_trip_status_button")
+                            ) {
+                                Icon(
+                                    imageVector = if (isTripClosed) Icons.Default.LockOpen else Icons.Default.Lock,
+                                    contentDescription = if (isTripClosed) stringResource(R.string.reopen_trip_action) else stringResource(R.string.close_trip_action),
+                                    tint = if (isTripClosed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
                         IconButton(
                             onClick = { showSettingsDialog = true },
                             modifier = Modifier.testTag("settings_button")
@@ -203,49 +265,72 @@ fun ShoppingScreen(
                 )
             },
             floatingActionButton = {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(end = 6.dp, bottom = 4.dp)
-                ) {
-                    // Secondary button for manual typing
-                    FloatingActionButton(
-                        onClick = { showManualAddDialog = true },
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        shape = CircleShape,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .testTag("manual_add_fab")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = stringResource(R.string.manual_add),
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-
-                    // Primary prominent voice button
+                if (isTripClosed) {
                     ExtendedFloatingActionButton(
-                        onClick = { showVoiceDialog = true },
+                        onClick = { viewModel.toggleCurrentSessionStatus() },
                         icon = {
                             Icon(
-                                imageVector = Icons.Default.Mic,
-                                contentDescription = stringResource(R.string.voice_input_title),
+                                imageVector = Icons.Default.LockOpen,
+                                contentDescription = stringResource(R.string.reopen_trip_action),
                                 modifier = Modifier.size(24.dp)
                             )
                         },
                         text = {
                             Text(
-                                text = stringResource(R.string.say_item_price),
+                                text = stringResource(R.string.reopen_trip_action),
                                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
                             )
                         },
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
                         shape = RoundedCornerShape(24.dp),
-                        modifier = Modifier.testTag("voice_input_fab")
+                        modifier = Modifier.testTag("reopen_trip_fab")
                     )
+                } else {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(end = 6.dp, bottom = 4.dp)
+                    ) {
+                        // Secondary button for manual typing
+                        FloatingActionButton(
+                            onClick = { showManualAddDialog = true },
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                            shape = CircleShape,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("manual_add_fab")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = stringResource(R.string.manual_add),
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+
+                        // Primary prominent voice button
+                        ExtendedFloatingActionButton(
+                            onClick = { showVoiceDialog = true },
+                            icon = {
+                                Icon(
+                                    imageVector = Icons.Default.Mic,
+                                    contentDescription = stringResource(R.string.voice_input_title),
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            },
+                            text = {
+                                Text(
+                                    text = stringResource(R.string.say_item_price),
+                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                                )
+                            },
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                            shape = RoundedCornerShape(24.dp),
+                            modifier = Modifier.testTag("voice_input_fab")
+                        )
+                    }
                 }
             },
             modifier = modifier
@@ -261,12 +346,64 @@ fun ShoppingScreen(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                 )
 
+                // Closed Trip Banner
+                if (isTripClosed) {
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .testTag("trip_closed_banner")
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = stringResource(R.string.trip_closed_banner),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                            TextButton(
+                                onClick = { viewModel.toggleCurrentSessionStatus() },
+                                modifier = Modifier.testTag("reopen_banner_button")
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.reopen_trip_action),
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Budget / Running Total Header Card
                 BudgetMeter(
                     totalSpent = totalSpent,
                     threshold = threshold,
                     currencySymbol = currency,
-                    onEditThresholdClick = { showAdjustThresholdDialog = true },
+                    onEditThresholdClick = {
+                        if (!isTripClosed) showAdjustThresholdDialog = true
+                    },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
 
@@ -297,7 +434,7 @@ fun ShoppingScreen(
                                 )
 
                                 Text(
-                                    text = stringResource(R.string.tap_to_edit),
+                                    text = if (isTripClosed) stringResource(R.string.trip_closed_badge) else stringResource(R.string.tap_to_edit),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.outline
                                 )
@@ -308,9 +445,15 @@ fun ShoppingScreen(
                             ShoppingItemCard(
                                 item = item,
                                 currencySymbol = currency,
-                                onItemClick = { editingItem = item },
+                                isReadOnly = isTripClosed,
+                                onItemClick = {
+                                    if (!isTripClosed) editingItem = item
+                                },
                                 onDeleteClick = { viewModel.deleteItem(item) },
-                                onQuantityChange = { newQty -> viewModel.updateQuantity(item, newQty) }
+                                onQuantityChange = { newQty -> viewModel.updateQuantity(item, newQty) },
+                                onAddPriceClick = {
+                                    voicePriceTargetItem = item
+                                }
                             )
                         }
                     }
@@ -322,18 +465,20 @@ fun ShoppingScreen(
 
         // Settings Dialog
         if (showSettingsDialog) {
-            SettingsDialog(
-                currentLanguage = language,
-                currentCurrency = currencyPref,
-                isVibrationEnabled = isVibrationEnabled,
-                onDismiss = { showSettingsDialog = false },
-                onLanguageSelected = { viewModel.setLanguage(it) },
-                onCurrencySelected = { viewModel.setCurrency(it) },
-                onVibrationToggled = { viewModel.setVibrationEnabled(it) }
-            )
+            key(language) {
+                SettingsDialog(
+                    currentLanguage = language,
+                    currentCurrency = currencyPref,
+                    isVibrationEnabled = isVibrationEnabled,
+                    onDismiss = { showSettingsDialog = false },
+                    onLanguageSelected = { viewModel.setLanguage(it) },
+                    onCurrencySelected = { viewModel.setCurrency(it) },
+                    onVibrationToggled = { viewModel.setVibrationEnabled(it) }
+                )
+            }
         }
 
-        // Voice Input Dialog
+        // Voice Input Dialog for adding items
         if (showVoiceDialog) {
             VoiceInputDialog(
                 currencySymbol = currency,
@@ -341,6 +486,23 @@ fun ShoppingScreen(
                 onDismiss = { showVoiceDialog = false },
                 onItemConfirmed = { name, price, qty ->
                     viewModel.addItem(name, price, qty)
+                },
+                onMultipleItemsConfirmed = { itemList ->
+                    viewModel.addItems(itemList)
+                }
+            )
+        }
+
+        // Voice Input Dialog for setting price on a specific item
+        voicePriceTargetItem?.let { targetItem ->
+            VoiceInputDialog(
+                currencySymbol = currency,
+                language = language,
+                targetItemForPrice = targetItem,
+                onDismiss = { voicePriceTargetItem = null },
+                onItemConfirmed = { _, price, _ ->
+                    viewModel.setItemPrice(targetItem, price)
+                    voicePriceTargetItem = null
                 }
             )
         }
@@ -352,6 +514,9 @@ fun ShoppingScreen(
                 onDismiss = { showManualAddDialog = false },
                 onConfirm = { name, price, qty ->
                     viewModel.addItem(name, price, qty)
+                },
+                onMultipleConfirm = { itemList ->
+                    viewModel.addItems(itemList)
                 }
             )
         }
@@ -399,8 +564,8 @@ fun ShoppingScreen(
         if (showNewShoppingDialog) {
             NewShoppingDialog(
                 onDismiss = { showNewShoppingDialog = false },
-                onCreate = { title, newThreshold, curr ->
-                    viewModel.createNewSession(title, newThreshold, curr)
+                onCreate = { title, newThreshold, curr, isShoppingList ->
+                    viewModel.createNewSession(title, newThreshold, curr, isShoppingList)
                 }
             )
         }
@@ -416,6 +581,9 @@ fun ShoppingScreen(
                 },
                 onDeleteSession = { sessionId ->
                     viewModel.deleteSession(sessionId)
+                },
+                onToggleSessionStatus = { session ->
+                    viewModel.toggleSessionStatus(session)
                 },
                 onNewShoppingClick = {
                     showNewShoppingDialog = true

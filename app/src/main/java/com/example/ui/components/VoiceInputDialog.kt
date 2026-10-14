@@ -73,6 +73,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.R
+import com.example.data.local.ShoppingItem
+import com.example.util.ParsedVoiceItem
 import com.example.util.PreferenceManager
 import com.example.util.VoiceParser
 import java.util.Locale
@@ -81,15 +83,24 @@ import java.util.Locale
 fun VoiceInputDialog(
     currencySymbol: String,
     language: String = PreferenceManager.LANG_SYSTEM,
+    targetItemForPrice: ShoppingItem? = null,
     onDismiss: () -> Unit,
-    onItemConfirmed: (name: String, price: Double, quantity: Int) -> Unit
+    onItemConfirmed: (name: String, price: Double, quantity: Int) -> Unit,
+    onMultipleItemsConfirmed: ((List<Triple<String, Double, Int>>) -> Unit)? = null
 ) {
     val context = LocalContext.current
 
     var spokenText by remember { mutableStateOf("") }
-    var itemName by remember { mutableStateOf("") }
-    var itemPriceStr by remember { mutableStateOf("") }
-    var itemQuantity by remember { mutableIntStateOf(1) }
+    var itemName by remember(targetItemForPrice) { mutableStateOf(targetItemForPrice?.name ?: "") }
+    var itemPriceStr by remember(targetItemForPrice) {
+        mutableStateOf(
+            if (targetItemForPrice != null && targetItemForPrice.price > 0.0) {
+                String.format(Locale.US, "%.2f", targetItemForPrice.price)
+            } else ""
+        )
+    }
+    var itemQuantity by remember(targetItemForPrice) { mutableIntStateOf(targetItemForPrice?.quantity ?: 1) }
+    var detectedMultipleItems by remember { mutableStateOf<List<ParsedVoiceItem>>(emptyList()) }
     var isListening by remember { mutableStateOf(false) }
 
     val localeTag = remember(language) {
@@ -104,21 +115,44 @@ fun VoiceInputDialog(
     }
     val isItalian = localeTag.startsWith("it")
 
-    val speechPrompt = if (isItalian) {
-        "Dì il nome dell'articolo e il prezzo (es. 'Latte 2.50')"
+    val speechPrompt = if (targetItemForPrice != null) {
+        if (isItalian) "Dì il prezzo (es. '1.50' o 'due euro e cinquanta')"
+        else "Say the price (e.g. '1.50' or 'two dollars')"
     } else {
-        "Say item name and price (e.g. 'Milk 2.50')"
+        if (isItalian) "Dì articolo e prezzo o elenco (es. 'Latte, Pane, Uova')"
+        else "Say item & price or list (e.g. 'Milk, Bread, Eggs')"
     }
 
     val parseAndApplyText: (String) -> Unit = { text ->
         spokenText = text
-        val parsed = VoiceParser.parse(text)
-        if (parsed != null) {
-            itemName = parsed.name
-            if (parsed.price > 0.0) {
-                itemPriceStr = String.format(Locale.US, "%.2f", parsed.price)
+        if (targetItemForPrice != null) {
+            val priceOnly = VoiceParser.parsePriceOnly(text)
+            if (priceOnly != null && priceOnly > 0.0) {
+                itemPriceStr = String.format(Locale.US, "%.2f", priceOnly)
+            } else {
+                val parsed = VoiceParser.parse(text)
+                if (parsed != null && parsed.price > 0.0) {
+                    itemPriceStr = String.format(Locale.US, "%.2f", parsed.price)
+                }
             }
-            itemQuantity = parsed.quantity
+        } else {
+            val multi = VoiceParser.parseList(text)
+            if (multi.size > 1) {
+                detectedMultipleItems = multi
+                itemName = multi.first().name
+                itemPriceStr = if (multi.first().price > 0.0) String.format(Locale.US, "%.2f", multi.first().price) else ""
+                itemQuantity = multi.first().quantity
+            } else {
+                detectedMultipleItems = emptyList()
+                val parsed = VoiceParser.parse(text)
+                if (parsed != null) {
+                    itemName = parsed.name
+                    if (parsed.price > 0.0) {
+                        itemPriceStr = String.format(Locale.US, "%.2f", parsed.price)
+                    }
+                    itemQuantity = parsed.quantity
+                }
+            }
         }
     }
 
@@ -350,23 +384,25 @@ fun VoiceInputDialog(
                         .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    val presets = if (isItalian) {
+                    val presets = if (targetItemForPrice != null) {
+                        listOf("0.99", "1.50", "1.99", "2.50", "3.00", "4.50", "5.00")
+                    } else if (isItalian) {
                         listOf(
+                            "Pane, Latte, Uova",
                             "Latte 1.50",
                             "3 Mele a 4.99",
                             "Pane 1.80",
                             "Caffè 1.20",
-                            "2 Birre a 3.50",
                             "Pasta 1.29"
                         )
                     } else {
                         listOf(
+                            "Bread, Milk, Eggs",
                             "Milk 2.49",
                             "3 Apples for $4.99",
                             "Bread 1.99",
                             "Eggs 4.20",
-                            "Coffee 6.50",
-                            "2 Cereal 3.99"
+                            "Coffee 6.50"
                         )
                     }
                     presets.forEach { preset ->
@@ -376,7 +412,7 @@ fun VoiceInputDialog(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(16.dp))
                                 .clickable { parseAndApplyText(preset) }
-                                .testTag("voice_preset_${preset.replace(" ", "_").replace("$", "")}")
+                                .testTag("voice_preset_${preset.replace(" ", "_").replace("$", "").replace(",", "")}")
                         ) {
                             Text(
                                 text = preset,
@@ -417,61 +453,91 @@ fun VoiceInputDialog(
                     }
                 }
 
-                // Extracted Editable Fields
-                OutlinedTextField(
-                    value = itemName,
-                    onValueChange = { itemName = it },
-                    label = { Text(stringResource(R.string.item_name)) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("voice_item_name_input")
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = itemPriceStr,
-                        onValueChange = { itemPriceStr = it },
-                        label = { Text("${stringResource(R.string.price)} ($currencySymbol)") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("voice_item_price_input")
-                    )
-
-                    // Quantity adjustment
+                // If multiple items detected, show summary card
+                if (detectedMultipleItems.size > 1 && targetItemForPrice == null) {
                     Surface(
                         shape = RoundedCornerShape(10.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                        modifier = Modifier.height(56.dp)
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 4.dp)
-                        ) {
-                            IconButton(
-                                onClick = { if (itemQuantity > 1) itemQuantity-- },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(Icons.Default.Remove, contentDescription = "Decrease", modifier = Modifier.size(16.dp))
-                            }
+                        Column(modifier = Modifier.padding(10.dp)) {
                             Text(
-                                text = "×$itemQuantity",
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                                modifier = Modifier.padding(horizontal = 4.dp)
+                                text = "${stringResource(R.string.voice_items_detected)} (${detectedMultipleItems.size})",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
-                            IconButton(
-                                onClick = { itemQuantity++ },
-                                modifier = Modifier.size(36.dp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = detectedMultipleItems.joinToString(", ") {
+                                    "${it.name}${if (it.price > 0.0) " ($currencySymbol${String.format(Locale.US, "%.2f", it.price)})" else ""}"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                    }
+                }
+
+                // Extracted Editable Fields (only if single item or targetItem)
+                if (detectedMultipleItems.size <= 1 || targetItemForPrice != null) {
+                    OutlinedTextField(
+                        value = itemName,
+                        onValueChange = { itemName = it },
+                        label = { Text(stringResource(R.string.item_name)) },
+                        singleLine = true,
+                        enabled = targetItemForPrice == null,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("voice_item_name_input")
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = itemPriceStr,
+                            onValueChange = { itemPriceStr = it },
+                            label = { Text("${stringResource(R.string.price)} ($currencySymbol)") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("voice_item_price_input")
+                        )
+
+                        // Quantity adjustment (hide if setting price on existing item)
+                        if (targetItemForPrice == null) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                modifier = Modifier.height(56.dp)
                             ) {
-                                Icon(Icons.Default.Add, contentDescription = "Increase", modifier = Modifier.size(16.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                ) {
+                                    IconButton(
+                                        onClick = { if (itemQuantity > 1) itemQuantity-- },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(Icons.Default.Remove, contentDescription = "Decrease", modifier = Modifier.size(16.dp))
+                                    }
+                                    Text(
+                                        text = "×$itemQuantity",
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                        modifier = Modifier.padding(horizontal = 4.dp)
+                                    )
+                                    IconButton(
+                                        onClick = { itemQuantity++ },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(Icons.Default.Add, contentDescription = "Increase", modifier = Modifier.size(16.dp))
+                                    }
+                                }
                             }
                         }
                     }
@@ -479,20 +545,35 @@ fun VoiceInputDialog(
             }
         },
         confirmButton = {
-            Button(
-                onClick = {
-                    val price = itemPriceStr.toDoubleOrNull() ?: 0.0
-                    val name = itemName.ifBlank { "Item" }
-                    onItemConfirmed(name, price, itemQuantity)
-                    onDismiss()
-                },
-                enabled = itemName.isNotBlank() || itemPriceStr.isNotBlank(),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.testTag("confirm_voice_item_button")
-            ) {
-                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(stringResource(R.string.add_item))
+            if (detectedMultipleItems.size > 1 && targetItemForPrice == null && onMultipleItemsConfirmed != null) {
+                Button(
+                    onClick = {
+                        onMultipleItemsConfirmed(detectedMultipleItems.map { Triple(it.name, it.price, it.quantity) })
+                        onDismiss()
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.testTag("confirm_voice_multiple_button")
+                ) {
+                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("${stringResource(R.string.add_item)} (${detectedMultipleItems.size})")
+                }
+            } else {
+                Button(
+                    onClick = {
+                        val price = itemPriceStr.toDoubleOrNull() ?: 0.0
+                        val name = itemName.ifBlank { "Item" }
+                        onItemConfirmed(name, price, itemQuantity)
+                        onDismiss()
+                    },
+                    enabled = itemName.isNotBlank() || itemPriceStr.isNotBlank(),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.testTag("confirm_voice_item_button")
+                ) {
+                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(if (targetItemForPrice != null) stringResource(R.string.save) else stringResource(R.string.add_item))
+                }
             }
         },
         dismissButton = {

@@ -202,6 +202,102 @@ object VoiceParser {
         return 0
     }
 
+    /**
+     * Parses multiple items spoken together as a list (e.g. "Latte, uova, pane, farina"
+     * or "Milk, eggs, bread and cheese").
+     * Returns a list of ParsedVoiceItem.
+     */
+    fun parseList(input: String): List<ParsedVoiceItem> {
+        val trimmed = input.trim()
+        if (trimmed.isBlank()) return emptyList()
+
+        // 1. Try splitting by comma, semicolon, newline
+        var rawParts = trimmed.split(Regex("[,;\\n]+"))
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+
+        // 2. If no commas, check if separated by " e " or " and "
+        if (rawParts.size <= 1) {
+            val andTokens = trimmed.split(Regex("\\s+(?:and|e|ed)\\s+", RegexOption.IGNORE_CASE))
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+            if (andTokens.size > 1) {
+                // Ensure the last part isn't just cents (e.g. "due euro e cinquanta")
+                val lastWordNum = parseWordOrDigit(andTokens.last())
+                val isPriceExpression = lastWordNum in 1..99 && andTokens.any { it.contains("euro", true) || it.contains("dollar", true) }
+                if (!isPriceExpression) {
+                    rawParts = andTokens
+                }
+            }
+        }
+
+        if (rawParts.size > 1) {
+            val items = mutableListOf<ParsedVoiceItem>()
+            for (part in rawParts) {
+                val cleanedPart = part
+                    .replace(Regex("^(?:and|e|ed|aggiungi|add|compra|buy)\\s+", RegexOption.IGNORE_CASE), "")
+                    .replace(Regex("\\s+(?:and|e|ed)$", RegexOption.IGNORE_CASE), "")
+                    .trim()
+                if (cleanedPart.isNotBlank()) {
+                    val parsed = parse(cleanedPart)
+                    if (parsed != null && parsed.name.isNotBlank()) {
+                        items.add(parsed)
+                    }
+                }
+            }
+            if (items.isNotEmpty()) return items
+        }
+
+        // Fallback to single item
+        val single = parse(trimmed)
+        return if (single != null && single.name.isNotBlank()) listOf(single) else emptyList()
+    }
+
+    /**
+     * Parses only a price from speech, such as "1.50", "2,80", "due euro e cinquanta",
+     * "three dollars", "one fifty".
+     */
+    fun parsePriceOnly(input: String): Double? {
+        val trimmed = input.trim()
+            .replace(",", ".")
+            .replace(Regex("[$€£¥₹]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+        // Direct number
+        val directMatch = Regex("""^(\d+(?:\.\d{1,2})?)\s*(?:dollars?|bucks?|euros?|euro|cents?|centesimi?)?$""", RegexOption.IGNORE_CASE).find(trimmed)
+        if (directMatch != null) {
+            return directMatch.groupValues[1].toDoubleOrNull()
+        }
+
+        // Spoken currency
+        val spoken = Regex("""^(\d+|[a-zàèéìòù']+)\s*(?:dollars?|bucks?|euros?|euro)\s*(?:and|e|ed)?\s*(\d+|[a-zàèéìòù']+)?\s*(?:cents?|centesimi?)?$""", RegexOption.IGNORE_CASE).find(trimmed)
+        if (spoken != null) {
+            val whole = parseWordOrDigit(spoken.groupValues[1])
+            val cents = spoken.groupValues[2].takeIf { it.isNotBlank() }?.let { parseWordOrDigit(it) } ?: 0
+            val price = whole + (cents / 100.0)
+            if (price > 0.0) return price
+        }
+
+        // Spoken number words (e.g. "two fifty" or "due e cinquanta")
+        val split = trimmed.split(" ")
+        if (split.size == 2) {
+            val whole = parseWordOrDigit(split[0])
+            val cents = parseWordOrDigit(split[1])
+            if (whole > 0 && cents in 1..99) return whole + (cents / 100.0)
+            if (whole > 0) return whole.toDouble()
+        } else if (split.size == 3 && (split[1].equals("e", true) || split[1].equals("and", true))) {
+            val whole = parseWordOrDigit(split[0])
+            val cents = parseWordOrDigit(split[2])
+            if (whole > 0 && cents in 1..99) return whole + (cents / 100.0)
+        }
+
+        val singleWordNum = parseWordOrDigit(trimmed)
+        if (singleWordNum > 0) return singleWordNum.toDouble()
+
+        return null
+    }
+
     private fun formatName(name: String): String {
         return name
             .trim()

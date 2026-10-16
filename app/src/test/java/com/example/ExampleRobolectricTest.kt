@@ -6,6 +6,10 @@ import com.example.util.VoiceParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Test
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
+import org.junit.Rule
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -37,6 +41,14 @@ class ExampleRobolectricTest {
     assertEquals("Apples", parsed?.name)
     assertEquals(4.99, parsed?.price ?: 0.0, 0.001)
     assertEquals(3, parsed?.quantity)
+  }
+  @Test
+  fun `test activity launch`() {
+    androidx.test.core.app.ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+      scenario.onActivity { activity ->
+        assertNotNull(activity)
+      }
+    }
   }
 }
 

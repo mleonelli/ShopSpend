@@ -4,11 +4,14 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Bundle
+import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -156,18 +159,41 @@ fun VoiceInputDialog(
         }
     }
 
-    // Check device speech recognizer availability safely
-    val isSpeechAvailable = remember(context) {
+    // Check in-app SpeechRecognizer service availability
+    val speechRecognizer = remember(context) {
+        try {
+            if (SpeechRecognizer.isRecognitionAvailable(context)) {
+                SpeechRecognizer.createSpeechRecognizer(context)
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    DisposableEffect(speechRecognizer) {
+        onDispose {
+            try {
+                speechRecognizer?.destroy()
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
+    }
+
+    // Check if an external intent-based speech Activity exists
+    val canLaunchActivity = remember(context) {
         try {
             val pm = context.packageManager
             val testIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-            SpeechRecognizer.isRecognitionAvailable(context) ||
-                testIntent.resolveActivity(pm) != null ||
-                pm.queryIntentActivities(testIntent, 0).isNotEmpty()
+            testIntent.resolveActivity(pm) != null || pm.queryIntentActivities(testIntent, 0).isNotEmpty()
         } catch (e: Exception) {
             false
         }
     }
+
+    val isSpeechAvailable = (speechRecognizer != null) || canLaunchActivity
 
     fun buildSpeechIntent(): Intent {
         return Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -178,7 +204,7 @@ fun VoiceInputDialog(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
             putExtra(RecognizerIntent.EXTRA_PROMPT, speechPrompt)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
         }
     }
 
@@ -196,36 +222,27 @@ fun VoiceInputDialog(
         }
     }
 
-    // Permission Launcher
+    // Declare permission launcher early so it's captured in lambda
+    var triggerVoiceStart: (() -> Unit)? by remember { mutableStateOf(null) }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
-        if (isGranted && isSpeechAvailable) {
-            try {
-                val intent = buildSpeechIntent()
-                isListening = true
-                speechLauncher.launch(intent)
-            } catch (e: Exception) {
-                isListening = false
-                Toast.makeText(
-                    context.applicationContext,
-                    context.getString(R.string.voice_not_available),
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
-        } else if (!isGranted) {
+        if (isGranted) {
+            triggerVoiceStart?.invoke()
+        } else {
             Toast.makeText(
-                context.applicationContext,
+                context,
                 context.getString(R.string.mic_permission_required),
                 Toast.LENGTH_SHORT
             ).show()
         }
     }
 
-    val startVoiceRecognition = {
+    val startVoiceRecognition: () -> Unit = {
         if (!isSpeechAvailable) {
             Toast.makeText(
-                context.applicationContext,
+                context,
                 context.getString(R.string.voice_not_available),
                 Toast.LENGTH_SHORT
             ).show()
@@ -236,17 +253,72 @@ fun VoiceInputDialog(
             ) == PackageManager.PERMISSION_GRANTED
 
             if (hasPermission) {
-                try {
-                    val intent = buildSpeechIntent()
-                    isListening = true
-                    speechLauncher.launch(intent)
-                } catch (e: Exception) {
-                    isListening = false
-                    Toast.makeText(
-                        context.applicationContext,
-                        context.getString(R.string.voice_not_available),
-                        Toast.LENGTH_SHORT
-                    ).show()
+                if (speechRecognizer != null) {
+                    try {
+                        speechRecognizer.setRecognitionListener(object : RecognitionListener {
+                            override fun onReadyForSpeech(params: Bundle?) {
+                                isListening = true
+                            }
+                            override fun onBeginningOfSpeech() {
+                                isListening = true
+                            }
+                            override fun onRmsChanged(rmsdB: Float) {}
+                            override fun onBufferReceived(buffer: ByteArray?) {}
+                            override fun onEndOfSpeech() {
+                                isListening = false
+                            }
+                            override fun onError(error: Int) {
+                                isListening = false
+                            }
+                            override fun onResults(results: Bundle?) {
+                                isListening = false
+                                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                                val recognized = matches?.firstOrNull()
+                                if (!recognized.isNullOrBlank()) {
+                                    parseAndApplyText(recognized)
+                                }
+                            }
+                            override fun onPartialResults(partialResults: Bundle?) {
+                                val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                                val text = matches?.firstOrNull()
+                                if (!text.isNullOrBlank()) {
+                                    spokenText = text
+                                }
+                            }
+                            override fun onEvent(eventType: Int, params: Bundle?) {}
+                        })
+                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
+                            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                        }
+                        speechRecognizer.startListening(intent)
+                        isListening = true
+                    } catch (e: Exception) {
+                        isListening = false
+                        if (canLaunchActivity) {
+                            try {
+                                speechLauncher.launch(buildSpeechIntent())
+                                isListening = true
+                            } catch (ex: Exception) {
+                                isListening = false
+                            }
+                        }
+                    }
+                } else if (canLaunchActivity) {
+                    try {
+                        speechLauncher.launch(buildSpeechIntent())
+                        isListening = true
+                    } catch (e: Exception) {
+                        isListening = false
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.voice_not_available),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
             } else {
                 try {
@@ -258,10 +330,34 @@ fun VoiceInputDialog(
         }
     }
 
-    // Auto trigger speech recognition only if speech service is available
+    LaunchedEffect(startVoiceRecognition) {
+        triggerVoiceStart = startVoiceRecognition
+    }
+
+    val toggleVoiceRecognition: () -> Unit = {
+        if (isListening) {
+            try {
+                speechRecognizer?.stopListening()
+            } catch (e: Exception) {
+                // Ignore
+            }
+            isListening = false
+        } else {
+            startVoiceRecognition()
+        }
+    }
+
+    // Safely auto-start voice listening ONLY if speech is available AND permission is ALREADY granted.
+    // Never auto-request runtime permissions from LaunchedEffect inside a Dialog.
     LaunchedEffect(isSpeechAvailable) {
         if (isSpeechAvailable) {
-            startVoiceRecognition()
+            val hasPermission = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+            if (hasPermission) {
+                startVoiceRecognition()
+            }
         }
     }
 
@@ -317,7 +413,7 @@ fun VoiceInputDialog(
                         modifier = Modifier
                             .size(54.dp)
                             .clip(CircleShape)
-                            .clickable { startVoiceRecognition() }
+                            .clickable { toggleVoiceRecognition() }
                             .testTag("voice_record_button")
                     ) {
                         Box(contentAlignment = Alignment.Center) {

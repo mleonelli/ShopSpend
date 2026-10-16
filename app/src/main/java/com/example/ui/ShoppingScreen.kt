@@ -152,7 +152,8 @@ fun ShoppingScreen(
     val localizedContext = remember(targetLocale, context) {
         val config = Configuration(context.resources.configuration)
         config.setLocale(targetLocale)
-        context.createConfigurationContext(config)
+        val configCtx = context.createConfigurationContext(config)
+        com.example.util.LocalizedContextWrapper(context, configCtx.resources)
     }
 
     CompositionLocalProvider(

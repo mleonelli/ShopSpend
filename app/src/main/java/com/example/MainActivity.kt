@@ -75,7 +75,8 @@ class MainActivity : ComponentActivity() {
         val config = Configuration(context.resources.configuration).apply {
           setLocale(targetLocale)
         }
-        context.createConfigurationContext(config)
+        val configCtx = context.createConfigurationContext(config)
+        com.example.util.LocalizedContextWrapper(context, configCtx.resources)
       }
 
       CompositionLocalProvider(
